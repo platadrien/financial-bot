@@ -1,4 +1,5 @@
 import pandas as pd
+import pickle
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
@@ -197,3 +198,13 @@ predicted_norm = model.predict(last_window).flatten()
 predicted_price = denormalize_close(predicted_norm)[0]
 
 print(f"\nProchain prix prévu (close) : ${predicted_price:.2f}")
+
+
+# Sauvegarder le modèle
+model.save("nvda_transformer.keras")
+
+# Sauvegarder le scaler (indispensable — mêmes paramètres qu'à l'entraînement)
+with open("scaler.pkl", "wb") as f:
+    pickle.dump(scaler, f)
+
+print("Modèle et scaler sauvegardés ✓")
