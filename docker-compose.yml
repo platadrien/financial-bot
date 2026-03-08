@@ -1,0 +1,63 @@
+name: trading
+
+services:
+
+  # ─── IB Gateway ───────────────────────────────────────────────
+  ib-gateway:
+    image: ghcr.io/gnzsnz/ib-gateway:stable
+    restart: always
+    env_file: .env
+    environment:
+      TWS_USERID:    ${TWS_USERID}
+      TWS_PASSWORD:  ${TWS_PASSWORD}
+      TRADING_MODE:  ${TRADING_MODE:-paper}
+      AUTO_RESTART_TIME: "11:59 PM"
+      TWOFA_TIMEOUT_ACTION: restart
+      TIME_ZONE: ${TIME_ZONE:-Europe/Paris}
+    ports:
+      - "127.0.0.1:4001:4003"   # live
+      - "127.0.0.1:4002:4004"   # paper
+      - "127.0.0.1:5900:5900"   # VNC (optionnel)
+    networks:
+      - trading-net
+
+  # ─── API Modèle ───────────────────────────────────────────────
+  model-api:
+    build: ./model-api
+    restart: always
+    volumes:
+      - ./models:/app/models:ro    # montage en lecture seule
+    environment:
+      MODEL_PATH:  /app/models/nvda_transformer.keras
+      SCALER_PATH: /app/models/scaler.pkl
+    ports:
+      - "127.0.0.1:5000:5000"    # accessible depuis l'hôte pour debug
+    networks:
+      - trading-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ─── Bot de trading ───────────────────────────────────────────
+  bot:
+    build: ./bot
+    restart: always
+    environment:
+      IB_HOST:       ib-gateway
+      IB_PORT:       4002           # paper
+      IB_CLIENT_ID:  10
+      MODEL_API_URL: http://model-api:5000
+      SYMBOL:        NVDA
+    networks:
+      - trading-net
+    depends_on:
+      ib-gateway:
+        condition: service_started
+      model-api:
+        condition: service_healthy
+
+networks:
+  trading-net:
+    driver: bridge
