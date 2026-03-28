@@ -1,13 +1,20 @@
-import pandas as pd
+import os
 import pickle
-import numpy as np
-import matplotlib.pyplot as plt
-from sklearn.preprocessing import StandardScaler
-import tensorflow as tf
-from tensorflow.keras import layers, callbacks
 
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import tensorflow as tf
+from dotenv import load_dotenv
+from sklearn.preprocessing import StandardScaler
+from tensorflow.keras import callbacks, layers
+
+load_dotenv()
+ROOT_PATH = os.getenv("ROOT_PATH")
 # ===================== 1. Chargement des données =====================
-data = pd.read_csv("NVDA_10min_2years.csv")
+data = pd.read_csv(
+    os.path.join(ROOT_PATH, "data", "csv", "nvda", "NVDA_10min_2years.csv")
+)
 data["date"] = pd.to_datetime(data["date"], utc=True)
 data = data.sort_values("date").reset_index(drop=True)
 
@@ -201,10 +208,11 @@ print(f"\nProchain prix prévu (close) : ${predicted_price:.2f}")
 
 
 # Sauvegarder le modèle
-model.save("nvda_transformer.keras")
+model_path = os.path.join(ROOT_PATH, "models", "nvda")
+model.save(os.path.join(model_path, "nvda_transformer.keras"))
 
 # Sauvegarder le scaler (indispensable — mêmes paramètres qu'à l'entraînement)
-with open("scaler.pkl", "wb") as f:
+with open(os.path.join(model_path, "scaler.pkl"), "wb") as f:
     pickle.dump(scaler, f)
 
 print("Modèle et scaler sauvegardés ✓")
