@@ -1,9 +1,13 @@
-from flask import Flask, request, jsonify
-import tensorflow as tf
-import numpy as np
-import pickle
-import os
 import logging
+import os
+import pickle
+
+import numpy as np
+import tensorflow as tf
+from dotenv import load_dotenv
+from flask import Flask, jsonify, request
+
+load_dotenv()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s — %(message)s")
 log = logging.getLogger(__name__)
@@ -11,7 +15,7 @@ log = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # ===================== Chargement modèle & scaler =====================
-MODEL_PATH  = os.getenv("MODEL_PATH",  "/app/models/nvda_transformer.keras")
+MODEL_PATH = os.getenv("MODEL_PATH", "/app/models/nvda_transformer.keras")
 SCALER_PATH = os.getenv("SCALER_PATH", "/app/models/scaler.pkl")
 
 log.info(f"Chargement du modèle : {MODEL_PATH}")
@@ -21,11 +25,12 @@ log.info(f"Chargement du scaler : {SCALER_PATH}")
 with open(SCALER_PATH, "rb") as f:
     scaler = pickle.load(f)
 
-WINDOW_SIZE  = 32
-N_FEATURES   = 7
+WINDOW_SIZE = 32
+N_FEATURES = 7
 FEATURE_COLS = ["open", "high", "low", "close", "volume", "average", "barCount"]
 
 log.info("Modèle prêt ✓")
+
 
 # ===================== Routes =====================
 @app.route("/health", methods=["GET"])
@@ -58,9 +63,11 @@ def predict():
         bars = np.array(data["bars"], dtype=np.float32)
 
         if bars.shape != (WINDOW_SIZE, N_FEATURES):
-            return jsonify({
-                "error": f"Shape incorrecte : reçu {bars.shape}, attendu ({WINDOW_SIZE}, {N_FEATURES})"
-            }), 400
+            return jsonify(
+                {
+                    "error": f"Shape incorrecte : reçu {bars.shape}, attendu ({WINDOW_SIZE}, {N_FEATURES})"
+                }
+            ), 400
 
         # Normalisation
         bars_scaled = scaler.transform(bars)
@@ -76,7 +83,7 @@ def predict():
 
         # Prix actuel = dernière barre
         current_price = float(bars[-1, 3])
-        change_pct    = (predicted_price - current_price) / current_price * 100
+        change_pct = (predicted_price - current_price) / current_price * 100
 
         # Signal
         if change_pct > 0.1:
@@ -86,12 +93,14 @@ def predict():
         else:
             signal = "HOLD"
 
-        return jsonify({
-            "current_price":   round(current_price, 2),
-            "predicted_price": round(predicted_price, 2),
-            "change_pct":      round(change_pct, 4),
-            "signal":          signal,
-        })
+        return jsonify(
+            {
+                "current_price": round(current_price, 2),
+                "predicted_price": round(predicted_price, 2),
+                "change_pct": round(change_pct, 4),
+                "signal": signal,
+            }
+        )
 
     except Exception as e:
         log.error(f"Erreur /predict : {e}")

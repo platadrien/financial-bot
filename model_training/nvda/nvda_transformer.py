@@ -209,7 +209,7 @@ print(f"\nProchain prix prévu (close) : ${predicted_price:.2f}")
 
 # Sauvegarder le modèle
 model_path = os.path.join(ROOT_PATH, "models", "nvda")
-model.save(os.path.join(model_path, "nvda_transformer.keras"))
+model.export(os.path.join(model_path, "nvda_transformer.keras"))
 
 # Sauvegarder le scaler (indispensable — mêmes paramètres qu'à l'entraînement)
 with open(os.path.join(model_path, "scaler.pkl"), "wb") as f:
