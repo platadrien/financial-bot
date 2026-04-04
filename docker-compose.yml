@@ -3,7 +3,7 @@ name: trading
 services:
   # ─── API Modèle ───────────────────────────────────────────────
   model-api:
-    build: ./model-api
+    image: model-api
     restart: always
     volumes:
       - ./models/nvda:/app/models:ro    # montage en lecture seule
