@@ -3,7 +3,9 @@ name: trading
 services:
   # ─── API Modèle ───────────────────────────────────────────────
   model-api:
-    image: model-api
+    build:
+      context: .
+      dockerfile: model_api/Dockerfile
     restart: always
     volumes:
       - ./models/nvda:/app/models:ro    # montage en lecture seule
