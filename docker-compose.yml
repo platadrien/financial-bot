@@ -18,6 +18,7 @@ services:
       - "127.0.0.1:4002:4004"   # paper
     networks:
       - trading-net
+
   # ─── API Modèle ───────────────────────────────────────────────
   model-api:
     container_name: ModelApi
@@ -32,11 +33,12 @@ services:
       - "127.0.0.1:5000:5000"    # accessible depuis l'hôte pour debug
     networks:
       - trading-net
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+    # healthcheck:
+    #   test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+    #   interval: 5s
+    #   timeout: 5s
+    #   retries: 5
+    #   start_period: 60s
 
   # ─── Bot de trading ───────────────────────────────────────────
   bot:
@@ -45,15 +47,12 @@ services:
     restart: always
     environment:
       IB_HOST:       ib-gateway
-      IB_PORT:       4002           # paper
+      IB_PORT:       4004           # paper
       IB_CLIENT_ID:  10
       MODEL_API_URL: http://model-api:5000
       SYMBOL:        NVDA
     networks:
       - trading-net
-    depends_on:
-      model-api:
-        condition: service_healthy
 
 networks:
   trading-net:
