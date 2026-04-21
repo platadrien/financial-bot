@@ -4,7 +4,7 @@ import time
 
 import numpy as np
 import requests
-from ib_insync import IB, Stock, util
+from ib_insync import IB, Stock, util, MarketOrder
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s — %(message)s")
 log = logging.getLogger(__name__)
@@ -92,14 +92,14 @@ def handle_signal(ib: IB, contract, signal: str, current_price: float):
     if signal == "BUY":
         log.info(f"📈 SIGNAL ACHAT  — prix actuel ${current_price:.2f}")
         # Exemple ordre réel (décommenter quand prêt) :
-        # order = MarketOrder("BUY", 1)
-        # trade = ib.placeOrder(contract, order)
-        # log.info(f"Ordre envoyé : {trade}")
+        order = MarketOrder("BUY", 1)
+        trade = ib.placeOrder(contract, order)
+        log.info(f"Ordre envoyé : {trade}")
 
     elif signal == "SELL":
         log.info(f"📉 SIGNAL VENTE  — prix actuel ${current_price:.2f}")
-        # order = MarketOrder("SELL", 1)
-        # trade = ib.placeOrder(contract, order)
+        order = MarketOrder("SELL", 1)
+        trade = ib.placeOrder(contract, order)
 
     else:
         log.info(f"⏸  HOLD          — prix actuel ${current_price:.2f}")
