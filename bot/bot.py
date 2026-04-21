@@ -1,22 +1,24 @@
-from ib_insync import IB, Stock, util
-import requests
-import numpy as np
 import logging
 import os
 import time
+
+import numpy as np
+import requests
+from ib_insync import IB, Stock, util, MarketOrder
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s — %(message)s")
 log = logging.getLogger(__name__)
 
 # ===================== Config (via variables d'environnement) =====================
-IB_HOST       = os.getenv("IB_HOST",       "ib-gateway")   # nom du service docker
-IB_PORT       = int(os.getenv("IB_PORT",   "4002"))        # 4002 = paper
-IB_CLIENT_ID  = int(os.getenv("IB_CLIENT_ID", "10"))
-MODEL_API_URL = os.getenv("MODEL_API_URL",  "http://model-api:5000")
-SYMBOL        = os.getenv("SYMBOL",         "NVDA")
-WINDOW_SIZE   = 32
-FEATURE_COLS  = ["open", "high", "low", "close", "volume", "average", "barCount"]
+IB_HOST = os.getenv("IB_HOST", "ib-gateway")  # nom du service docker
+IB_PORT = int(os.getenv("IB_PORT", "4002"))  # 4002 = paper
+IB_CLIENT_ID = int(os.getenv("IB_CLIENT_ID", "10"))
+MODEL_API_URL = os.getenv("MODEL_API_URL", "http://model-api:5000")
+SYMBOL = os.getenv("SYMBOL", "NVDA")
+WINDOW_SIZE = 32
+FEATURE_COLS = ["open", "high", "low", "close", "volume", "average", "barCount"]
 POLL_INTERVAL = 600  # secondes entre chaque prédiction (10 min = 1 barre)
+
 
 # ===================== Connexion IB =====================
 def connect_ib() -> IB:
@@ -27,7 +29,7 @@ def connect_ib() -> IB:
             log.info(f"Connecté à IB Gateway ({IB_HOST}:{IB_PORT})")
             return ib
         except Exception as e:
-            log.warning(f"Tentative {attempt+1}/5 échouée : {e} — retry dans 10s")
+            log.warning(f"Tentative {attempt + 1}/5 échouée : {e} — retry dans 10s")
             time.sleep(10)
     raise ConnectionError("Impossible de se connecter à IB Gateway")
 
@@ -39,7 +41,7 @@ def fetch_last_bars(ib: IB, contract) -> np.ndarray | None:
         bars = ib.reqHistoricalData(
             contract,
             endDateTime="",
-            durationStr="6 H",
+            durationStr="21600 S",
             barSizeSetting="10 mins",
             whatToShow="TRADES",
             useRTH=True,
@@ -90,14 +92,14 @@ def handle_signal(ib: IB, contract, signal: str, current_price: float):
     if signal == "BUY":
         log.info(f"📈 SIGNAL ACHAT  — prix actuel ${current_price:.2f}")
         # Exemple ordre réel (décommenter quand prêt) :
-        # order = MarketOrder("BUY", 1)
-        # trade = ib.placeOrder(contract, order)
-        # log.info(f"Ordre envoyé : {trade}")
+        order = MarketOrder("BUY", 1)
+        trade = ib.placeOrder(contract, order)
+        log.info(f"Ordre envoyé : {trade}")
 
     elif signal == "SELL":
         log.info(f"📉 SIGNAL VENTE  — prix actuel ${current_price:.2f}")
-        # order = MarketOrder("SELL", 1)
-        # trade = ib.placeOrder(contract, order)
+        order = MarketOrder("SELL", 1)
+        trade = ib.placeOrder(contract, order)
 
     else:
         log.info(f"⏸  HOLD          — prix actuel ${current_price:.2f}")
@@ -123,7 +125,9 @@ def main():
     contract = Stock(SYMBOL, "SMART", "USD")
     ib.qualifyContracts(contract)
 
-    log.info(f"Démarrage de la boucle de trading — {SYMBOL} toutes les {POLL_INTERVAL}s")
+    log.info(
+        f"Démarrage de la boucle de trading — {SYMBOL} toutes les {POLL_INTERVAL}s"
+    )
 
     while True:
         log.info("— Nouvelle itération —")
