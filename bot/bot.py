@@ -11,7 +11,7 @@ log = logging.getLogger(__name__)
 
 # ===================== Config (via variables d'environnement) =====================
 IB_HOST = os.getenv("IB_HOST", "ib-gateway")  # nom du service docker
-IB_PORT = int(os.getenv("IB_PORT", "4004"))  # 4002 = paper
+IB_PORT = int(os.getenv("IB_PORT", "4002"))  # 4002 = paper
 IB_CLIENT_ID = int(os.getenv("IB_CLIENT_ID", "10"))
 MODEL_API_URL = os.getenv("MODEL_API_URL", "http://model-api:5000")
 SYMBOL = os.getenv("SYMBOL", "NVDA")
