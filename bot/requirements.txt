@@ -1,0 +1,4 @@
+ib-insync==0.9.86
+numpy==2.4.3
+requests==2.33.0
+pandas==2.2.2

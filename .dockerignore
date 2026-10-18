@@ -1,0 +1,8 @@
+# .dockerignore
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.git/
+data/
+*.csv
