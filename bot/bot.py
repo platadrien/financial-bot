@@ -26,23 +26,17 @@ IB_CLIENT_ID = int(os.getenv("IB_CLIENT_ID", "10"))
 MODEL_API_URL = os.getenv("MODEL_API_URL", "http://model-api:5000")
 SYMBOL = os.getenv("SYMBOL", "NVDA")
 
-WINDOW_SIZE = 32
+N_BARS = 33  # 32 barres de fenêtre + 1 barre précédente (pour calculer les rendements)
 FEATURE_COLS = ["open", "high", "low", "close", "volume", "average", "barCount"]
 BAR_SECONDS = 600  # barres de 10 min
 BAR_DELAY = 5  # secondes d'attente après la clôture d'une barre
-MAX_BAR_AGE = (
-    900  # barre close plus vieille que 15 min => marché fermé / données figées
-)
+MAX_BAR_AGE = 900  # barre close plus vieille que 15 min => marché fermé / données figées
 
 # --- Sécurité des ordres ---
 ORDERS_ENABLED = env_bool("ORDERS_ENABLED", False)  # False = dry-run (logs uniquement)
-MAX_POSITION = int(
-    os.getenv("MAX_POSITION", "1")
-)  # nb max d'actions détenues (long-only)
+MAX_POSITION = int(os.getenv("MAX_POSITION", "1"))  # nb max d'actions détenues (long-only)
 ORDER_QTY = int(os.getenv("ORDER_QTY", "1"))  # taille d'un ordre d'achat
-LIVE_CONFIRM = os.getenv(
-    "LIVE_CONFIRM", ""
-)  # doit valoir "yes" pour trader un compte réel
+LIVE_CONFIRM = os.getenv("LIVE_CONFIRM", "")  # doit valoir "yes" pour trader un compte réel
 
 STOP = False
 
@@ -113,16 +107,14 @@ def check_account_safety(ib: IB):
     log.info(f"Compte(s) : {accounts} — {'PAPER' if is_paper else 'RÉEL'}")
     log.info(f"Ordres : {'ACTIVÉS' if ORDERS_ENABLED else 'désactivés (dry-run)'}")
     if ORDERS_ENABLED and not is_paper and LIVE_CONFIRM.lower() != "yes":
-        log.error(
-            "Compte réel détecté : définis LIVE_CONFIRM=yes pour autoriser les ordres."
-        )
+        log.error("Compte réel détecté : définis LIVE_CONFIRM=yes pour autoriser les ordres.")
         sys.exit(1)
 
 
 # ===================== Données =====================
 def fetch_closed_bars(ib: IB, contract):
     """
-    Retourne (bars, last_bar_end) avec exactement WINDOW_SIZE barres *closes*,
+    Retourne (bars, last_bar_end) avec exactement N_BARS barres *closes*,
     ou None si les données sont indisponibles, incomplètes ou périmées.
     """
     bars = ib.reqHistoricalData(
@@ -140,19 +132,17 @@ def fetch_closed_bars(ib: IB, contract):
 
     now = datetime.now(timezone.utc)
     closed = [b for b in bars if bar_end_utc(b.date) <= now]  # exclut la barre en cours
-    if len(closed) < WINDOW_SIZE:
-        log.warning(f"Pas assez de barres closes : {len(closed)}/{WINDOW_SIZE}")
+    if len(closed) < N_BARS:
+        log.warning(f"Pas assez de barres closes : {len(closed)}/{N_BARS}")
         return None
 
     last_end = bar_end_utc(closed[-1].date)
     age = (now - last_end).total_seconds()
     if age > MAX_BAR_AGE:
-        log.info(
-            f"Dernière barre close vieille de {age / 60:.0f} min — marché fermé, on passe"
-        )
+        log.info(f"Dernière barre close vieille de {age / 60:.0f} min — marché fermé, on passe")
         return None
 
-    df = util.df(closed)[FEATURE_COLS].tail(WINDOW_SIZE)
+    df = util.df(closed)[FEATURE_COLS].tail(N_BARS)
     if not df.notna().all().all() or (df["volume"] <= 0).any():
         log.warning("Barres invalides (NaN ou volume nul), on passe")
         return None
@@ -179,9 +169,7 @@ def wait_for_model_api() -> bool:
 
 def get_prediction(bars: list) -> dict | None:
     try:
-        response = requests.post(
-            f"{MODEL_API_URL}/predict", json={"bars": bars}, timeout=30
-        )
+        response = requests.post(f"{MODEL_API_URL}/predict", json={"bars": bars}, timeout=30)
         response.raise_for_status()
         return response.json()
     except requests.exceptions.ConnectionError:
@@ -219,9 +207,7 @@ def handle_signal(ib: IB, contract, signal: str, price: float):
     if signal == "BUY":
         qty = min(ORDER_QTY, MAX_POSITION - position)
         if qty <= 0:
-            log.info(
-                f"📈 BUY ignoré — position {position} déjà au max ({MAX_POSITION})"
-            )
+            log.info(f"📈 BUY ignoré — position {position} déjà au max ({MAX_POSITION})")
             return
         action = "BUY"
     else:
@@ -230,9 +216,7 @@ def handle_signal(ib: IB, contract, signal: str, price: float):
             return
         qty, action = position, "SELL"
 
-    log.info(
-        f"{'📈' if action == 'BUY' else '📉'} {action} {qty} {SYMBOL} @ ~${price:.2f} (position actuelle : {position})"
-    )
+    log.info(f"{'📈' if action == 'BUY' else '📉'} {action} {qty} {SYMBOL} @ ~${price:.2f} (position actuelle : {position})")
 
     if not ORDERS_ENABLED:
         log.info("[DRY-RUN] ordre non envoyé (ORDERS_ENABLED=false)")
@@ -243,9 +227,7 @@ def handle_signal(ib: IB, contract, signal: str, price: float):
 
     trade = ib.placeOrder(contract, MarketOrder(action, qty))
     ib.sleep(2)
-    log.info(
-        f"Ordre envoyé : statut={trade.orderStatus.status} filled={trade.orderStatus.filled}"
-    )
+    log.info(f"Ordre envoyé : statut={trade.orderStatus.status} filled={trade.orderStatus.filled}")
 
 
 # ===================== Boucle principale =====================
@@ -271,9 +253,7 @@ def main():
 
         try:
             if not ensure_connected(ib):
-                log.error(
-                    "IB Gateway injoignable, nouvelle tentative à la prochaine barre"
-                )
+                log.error("IB Gateway injoignable, nouvelle tentative à la prochaine barre")
                 continue
 
             result = fetch_closed_bars(ib, contract)
@@ -292,13 +272,11 @@ def main():
 
             log.info(
                 f"Prix : ${prediction['current_price']:.2f} | "
-                f"Prédit : ${prediction['predicted_price']:.2f} | "
-                f"Variation : {prediction['change_pct']:+.2f}% | "
+                f"Prédit : ${prediction['predicted_price']:.3f} | "
+                f"Variation : {prediction['change_pct']:+.3f}% | "
                 f"Signal : {prediction['signal']}"
             )
-            handle_signal(
-                ib, contract, prediction["signal"], prediction["current_price"]
-            )
+            handle_signal(ib, contract, prediction["signal"], prediction["current_price"])
 
         except Exception:
             log.exception("Erreur dans l'itération, on continue à la prochaine barre")

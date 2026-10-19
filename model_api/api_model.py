@@ -1,11 +1,13 @@
+import json
 import logging
 import os
-import pickle
+import threading
 
 import numpy as np
 import tensorflow as tf
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request
+from tools.features import FEATURE_NAMES, N_FEATURES, N_RAW, apply_scaler, compute_features
 from tools.positionnal_encoding import PositionalEncoding
 
 load_dotenv()
@@ -15,33 +17,42 @@ log = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# ===================== Chargement modèle & scaler =====================
+# ===================== Chargement modèle & métadonnées =====================
 MODEL_PATH = os.getenv("MODEL_PATH", "/app/models/nvda_transformer.keras")
-SCALER_PATH = os.getenv("SCALER_PATH", "/app/models/scaler.pkl")
+META_PATH = os.getenv("META_PATH", "/app/models/meta.json")
 
 log.info(f"Chargement du modèle : {MODEL_PATH}")
 model = tf.keras.models.load_model(
     MODEL_PATH,
-    custom_objects={
-        "PositionalEncoding": PositionalEncoding,
-    },
+    custom_objects={"PositionalEncoding": PositionalEncoding},
 )
 
-log.info(f"Chargement du scaler : {SCALER_PATH}")
-with open(SCALER_PATH, "rb") as f:
-    scaler = pickle.load(f)
+log.info(f"Chargement des métadonnées : {META_PATH}")
+with open(META_PATH) as f:
+    meta = json.load(f)
 
-WINDOW_SIZE = 32
-N_FEATURES = 7
-FEATURE_COLS = ["open", "high", "low", "close", "volume", "average", "barCount"]
+# Garde-fou : le modèle doit avoir été entraîné avec les mêmes features que le code actuel
+if meta["n_raw_bars"] != N_RAW or meta["feature_names"] != FEATURE_NAMES:
+    raise RuntimeError(
+        "meta.json incompatible avec tools/features.py — ré-entraîne le modèle "
+        "ou aligne les versions du code."
+    )
 
-log.info("Modèle prêt ✓")
+SCALER_MEAN = np.array(meta["scaler_mean"], dtype=np.float64)
+SCALER_SCALE = np.array(meta["scaler_scale"], dtype=np.float64)
+TARGET_STD = float(meta["target_std"])
+# Seuil de signal en points de base (surchargeable sans ré-entraîner)
+THRESHOLD_BPS = float(os.getenv("THRESHOLD_BPS", meta["threshold_bps"]))
+
+_predict_lock = threading.Lock()  # Keras n'aime pas les appels concurrents
+
+log.info(f"Modèle prêt ✓ (seuil de signal : ±{THRESHOLD_BPS:g} bps)")
 
 
 # ===================== Routes =====================
 @app.route("/health", methods=["GET"])
 def health():
-    return jsonify({"status": "ok"})
+    return jsonify({"status": "ok", "model_version": meta.get("version")})
 
 
 @app.route("/predict", methods=["POST"])
@@ -50,51 +61,41 @@ def predict():
     Attend un JSON :
     {
         "bars": [[open, high, low, close, volume, average, barCount], ...]
-        // 32 lignes exactement
+        // 33 lignes exactement : 32 de fenêtre + 1 barre précédente, barres CLOSES,
+        // de la plus ancienne à la plus récente
     }
     Retourne :
     {
         "current_price": 134.50,
-        "predicted_price": 135.10,
-        "change_pct": 0.45,
-        "signal": "BUY"
+        "predicted_price": 134.5134,
+        "change_pct": 0.01,             // rendement prédit de la barre suivante, en %
+        "predicted_return_bps": 1.0,    // idem en points de base
+        "signal": "HOLD"
     }
     """
     try:
-        data = request.get_json()
-
-        if "bars" not in data:
+        data = request.get_json(silent=True)
+        if not data or "bars" not in data:
             return jsonify({"error": "Champ 'bars' manquant"}), 400
 
-        bars = np.array(data["bars"], dtype=np.float32)
+        bars = np.array(data["bars"], dtype=np.float64)
 
-        if bars.shape != (WINDOW_SIZE, N_FEATURES):
-            return jsonify(
-                {
-                    "error": f"Shape incorrecte : reçu {bars.shape}, attendu ({WINDOW_SIZE}, {N_FEATURES})"
-                }
-            ), 400
+        # Features stationnaires (même code que l'entraînement) puis standardisation
+        feats = compute_features(bars[np.newaxis])  # (1, 32, 7) ; lève ValueError si invalide
+        X = apply_scaler(feats, SCALER_MEAN, SCALER_SCALE).astype(np.float32)
+        assert X.shape[-1] == N_FEATURES
 
-        # Normalisation
-        bars_scaled = scaler.transform(bars)
-        X = bars_scaled.reshape(1, WINDOW_SIZE, N_FEATURES)
+        with _predict_lock:
+            pred_scaled = float(model(X, training=False).numpy()[0, 0])
 
-        # Prédiction
-        pred_norm = model.predict(X, verbose=0)[0][0]
-
-        # Dénormalisation
-        dummy = np.zeros((1, N_FEATURES))
-        dummy[0, 3] = pred_norm  # index 3 = close
-        predicted_price = float(scaler.inverse_transform(dummy)[0, 3])
-
-        # Prix actuel = dernière barre
+        predicted_return = pred_scaled * TARGET_STD  # fraction (0.0001 = 1 bp)
         current_price = float(bars[-1, 3])
-        change_pct = (predicted_price - current_price) / current_price * 100
+        predicted_price = current_price * (1 + predicted_return)
+        return_bps = predicted_return * 1e4
 
-        # Signal
-        if change_pct > 0.1:
+        if return_bps > THRESHOLD_BPS:
             signal = "BUY"
-        elif change_pct < -0.1:
+        elif return_bps < -THRESHOLD_BPS:
             signal = "SELL"
         else:
             signal = "HOLD"
@@ -102,12 +103,15 @@ def predict():
         return jsonify(
             {
                 "current_price": round(current_price, 2),
-                "predicted_price": round(predicted_price, 2),
-                "change_pct": round(change_pct, 4),
+                "predicted_price": round(predicted_price, 4),
+                "change_pct": round(predicted_return * 100, 4),
+                "predicted_return_bps": round(return_bps, 3),
                 "signal": signal,
             }
         )
 
+    except ValueError as e:  # barres invalides : erreur du client, pas du serveur
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         log.error(f"Erreur /predict : {e}")
         return jsonify({"error": str(e)}), 500
